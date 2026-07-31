@@ -33,20 +33,64 @@ public struct OctorynUIMessage: Identifiable, Equatable, Sendable {
   }
 }
 
+public struct OctorynResumableEvent: Sendable {
+  public let id: String?
+  public let event: StreamEvent
+
+  public init(id: String? = nil, event: StreamEvent) {
+    self.id = id
+    self.event = event
+  }
+}
+
+public typealias OctorynChatTransport = @Sendable (
+  _ messages: [ChatMessage],
+  _ model: String,
+  _ resumeFrom: String?
+) async throws -> AsyncThrowingStream<OctorynResumableEvent, Error>
+
 @MainActor
 @Observable
 public final class OctorynChat {
   public private(set) var messages: [OctorynUIMessage] = []
   public private(set) var isStreaming = false
   public private(set) var error: String?
+  public private(set) var lastEventID: String?
+  public private(set) var canResume = false
 
-  private let client: OctorynClient
   private let model: String
+  private let transport: OctorynChatTransport
   private var streamTask: Task<Void, Never>?
+  private var pendingAssistantIndex: Int?
 
   public init(client: OctorynClient, model: String) {
-    self.client = client
+    self.transport = { messages, model, resumeFrom in
+      if resumeFrom != nil {
+        throw OctorynError.invalidRequest(
+          "URLSessionTransport does not expose resumable event IDs; provide OctorynChatTransport"
+        )
+      }
+      let source = try await client.streamText(.init(model: model, messages: messages))
+      return AsyncThrowingStream { continuation in
+        let task = Task {
+          do {
+            for try await event in source {
+              continuation.yield(.init(event: event))
+            }
+            continuation.finish()
+          } catch {
+            continuation.finish(throwing: error)
+          }
+        }
+        continuation.onTermination = { _ in task.cancel() }
+      }
+    }
     self.model = model
+  }
+
+  public init(model: String, transport: @escaping OctorynChatTransport) {
+    self.model = model
+    self.transport = transport
   }
 
   public func send(_ prompt: String) {
@@ -56,6 +100,49 @@ public final class OctorynChat {
     messages.append(.init(role: .user, text: trimmed))
     messages.append(.init(role: .assistant, text: ""))
     let assistantIndex = messages.endIndex - 1
+    lastEventID = nil
+    canResume = false
+    startStream(assistantIndex: assistantIndex, resumeFrom: nil)
+  }
+
+  public func edit(messageID: UUID, text: String) {
+    let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty,
+      let index = messages.firstIndex(where: { $0.id == messageID && $0.role == .user })
+    else { return }
+    stop()
+    messages[index].text = value
+    messages.removeSubrange((index + 1)..<messages.endIndex)
+    messages.append(.init(role: .assistant, text: ""))
+    lastEventID = nil
+    canResume = false
+    startStream(assistantIndex: messages.endIndex - 1, resumeFrom: nil)
+  }
+
+  public func regenerate(messageID: UUID? = nil) {
+    let target = messageID.flatMap { id in
+      messages.firstIndex(where: { $0.id == id && $0.role == .assistant })
+    } ?? messages.indices.reversed().first(where: { messages[$0].role == .assistant })
+    guard let assistantIndex = target,
+      messages[..<assistantIndex].lastIndex(where: { $0.role == .user }) != nil
+    else { return }
+    stop()
+    messages.removeSubrange(assistantIndex..<messages.endIndex)
+    messages.append(.init(role: .assistant, text: ""))
+    lastEventID = nil
+    canResume = false
+    startStream(assistantIndex: messages.endIndex - 1, resumeFrom: nil)
+  }
+
+  public func resume() {
+    guard canResume, let assistantIndex = pendingAssistantIndex,
+      let resumeFrom = lastEventID, !isStreaming
+    else { return }
+    startStream(assistantIndex: assistantIndex, resumeFrom: resumeFrom)
+  }
+
+  private func startStream(assistantIndex: Int, resumeFrom: String?) {
+    pendingAssistantIndex = assistantIndex
     isStreaming = true
     error = nil
 
@@ -64,16 +151,18 @@ public final class OctorynChat {
         let history = messages.dropLast().map {
           ChatMessage(role: $0.role.rawValue, content: $0.text)
         }
-        let stream = try await client.streamText(
-          .init(model: model, messages: history)
-        )
-        for try await event in stream {
-          apply(event, to: assistantIndex)
+        let stream = try await transport(history, model, resumeFrom)
+        for try await item in stream {
+          if let id = item.id { lastEventID = id }
+          apply(item.event, to: assistantIndex)
         }
+        canResume = false
+        pendingAssistantIndex = nil
       } catch is CancellationError {
         // User-initiated cancellation is an expected terminal state.
       } catch {
         self.error = error.localizedDescription
+        canResume = lastEventID != nil
       }
       isStreaming = false
     }
@@ -89,6 +178,9 @@ public final class OctorynChat {
     stop()
     messages.removeAll()
     error = nil
+    lastEventID = nil
+    canResume = false
+    pendingAssistantIndex = nil
   }
 
   private func apply(_ event: StreamEvent, to index: Int) {

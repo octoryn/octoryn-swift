@@ -82,6 +82,26 @@ public struct GovernanceMetadata: Equatable, Sendable {
   public let policyDecision: String?
   public let evidenceHash: String?
   public let estimatedCost: Double?
+
+  public init(
+    runID: String? = nil,
+    upstream: String? = nil,
+    byok: String? = nil,
+    region: String? = nil,
+    route: String? = nil,
+    policyDecision: String? = nil,
+    evidenceHash: String? = nil,
+    estimatedCost: Double? = nil
+  ) {
+    self.runID = runID
+    self.upstream = upstream
+    self.byok = byok
+    self.region = region
+    self.route = route
+    self.policyDecision = policyDecision
+    self.evidenceHash = evidenceHash
+    self.estimatedCost = estimatedCost
+  }
 }
 
 public struct TextResult: Sendable {
