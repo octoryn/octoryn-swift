@@ -3,6 +3,10 @@
 Native Swift 6 SDK for governed Octoryn text generation, streaming, tool calls,
 JSON Schema structured output, and SwiftUI chat state.
 
+Add `https://github.com/octopusos/octoryn-swift` as a Swift Package dependency
+from version `0.1.0`, then link `OctorynCore` and, for native chat state,
+`OctorynSwiftUI`.
+
 ```swift
 let client = try OctorynClient(apiKey: token)
 let result = try await client.generateText(
