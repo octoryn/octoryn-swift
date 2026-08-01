@@ -18,8 +18,13 @@ public struct OctorynClient: Sendable {
       throw OctorynError.invalidRequest("Octoryn API key is required")
     }
     self.apiKey = apiKey
-    self.baseURL = baseURL
+    self.baseURL = Self.directoryURL(baseURL)
     self.transport = transport
+  }
+
+  private static func directoryURL(_ url: URL) -> URL {
+    guard !url.absoluteString.hasSuffix("/") else { return url }
+    return URL(string: url.absoluteString + "/") ?? url
   }
 
   public func generateText(_ input: TextRequest) async throws -> TextResult {
@@ -155,8 +160,8 @@ public struct OctorynClient: Sendable {
     request.httpMethod = "POST"
     request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("octoryn-swift/0.1.0", forHTTPHeaderField: "User-Agent")
-    request.setValue("swift/0.1.0", forHTTPHeaderField: "X-Octoryn-Sdk")
+    request.setValue("octoryn-swift/0.2.1", forHTTPHeaderField: "User-Agent")
+    request.setValue("swift/0.2.1", forHTTPHeaderField: "X-Octoryn-Sdk")
     request.httpBody = try JSONEncoder().encode(JSONValue.object(payload))
     return request
   }

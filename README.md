@@ -4,19 +4,19 @@ Native Swift 6 SDK for governed Octoryn text generation, streaming, tool calls,
 JSON Schema structured output, and SwiftUI chat state.
 
 Add `https://github.com/octoryn/octoryn-swift` as a Swift Package dependency
-from version `0.2.0`, then link `OctorynCore` and, for native chat state,
+from version `0.2.1`, then link `OctorynCore` and, for native chat state,
 `OctorynSwiftUI`.
 
 ```swift
 let client = try OctorynClient(apiKey: token)
 let result = try await client.generateText(
-    .init(model: "policy/frontier", prompt: "Summarise this")
+    .init(model: "openai/gpt-4.1-mini", prompt: "Summarise this")
 )
 ```
 
-`OctorynCore` never executes an agent loop. Use Reef for multi-step tool and
-approval workflows. `OctorynSwiftUI` is a native UI-state layer and does not
-embed a JavaScript runtime.
+`OctorynCore` never executes an agent loop or claims an agent API on the
+Router. `OctorynSwiftUI` is a native UI-state layer and does not embed a
+JavaScript runtime.
 
 `OctorynChat` supports edit and regenerate. A custom native
 `OctorynChatTransport` may attach stable event IDs; interrupted streams then

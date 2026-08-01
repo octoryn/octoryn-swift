@@ -51,10 +51,29 @@ final class OctorynClientTests: XCTestCase {
     XCTAssertEqual(result.toolCalls.first?.name, "getWeather")
     XCTAssertEqual(result.octoryn.runID, "run_swift")
     XCTAssertEqual(result.octoryn.region, "au-sydney")
+    XCTAssertEqual(transport.request?.url?.path, "/v1/chat/completions")
     XCTAssertEqual(
       try result.toolCalls.first?.decodeInput(),
       .object(["city": .string("Sydney")])
     )
+  }
+
+  func testCustomBaseURLWithoutTrailingSlashPreservesVersionPath() async throws {
+    let transport = MockTransport(
+      response: .init(
+        status: 200,
+        headers: [:],
+        body: Data("{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}".utf8)
+      ))
+    let client = try OctorynClient(
+      apiKey: "test",
+      baseURL: try XCTUnwrap(URL(string: "https://router.test/v1")),
+      transport: transport
+    )
+
+    _ = try await client.generateText(.init(model: "policy/frontier", prompt: "Hi"))
+
+    XCTAssertEqual(transport.request?.url?.absoluteString, "https://router.test/v1/chat/completions")
   }
 
   func testStreamingReassemblesSplitToolCalls() async throws {
